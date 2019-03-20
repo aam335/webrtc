@@ -6,40 +6,50 @@ import (
 
 	"github.com/pions/datachannel"
 	"github.com/pions/webrtc"
-	"github.com/pions/webrtc/examples/util"
-	"github.com/pions/webrtc/pkg/ice"
+
+	"github.com/pions/webrtc/examples/internal/signal"
 )
 
 const messageSize = 15
 
 func main() {
 	// Since this behavior diverges from the WebRTC API it has to be
-	// enabled using global switch.
-	// Mixing both behaviors is not supported.
-	webrtc.DetachDataChannels()
+	// enabled using a settings engine. Mixing both detached and the
+	// OnMessage DataChannel API is not supported.
+
+	// Create a SettingEngine and enable Detach
+	s := webrtc.SettingEngine{}
+	s.DetachDataChannels()
+
+	// Create an API object with the engine
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
 
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
 	// Prepare the configuration
-	config := webrtc.RTCConfiguration{
-		IceServers: []webrtc.RTCIceServer{
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
 		},
 	}
 
-	// Create a new RTCPeerConnection
-	peerConnection, err := webrtc.New(config)
-	util.Check(err)
+	// Create a new RTCPeerConnection using the API object
+	peerConnection, err := api.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
 
 	// Create a datachannel with label 'data'
 	dataChannel, err := peerConnection.CreateDataChannel("data", nil)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Set the handler for ICE connection state
 	// This will notify you when the peer has connected/disconnected
-	peerConnection.OnICEConnectionStateChange(func(connectionState ice.ConnectionState) {
+	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("ICE Connection State has changed: %s\n", connectionState.String())
 	})
 
@@ -49,7 +59,9 @@ func main() {
 
 		// Detach the data channel
 		raw, dErr := dataChannel.Detach()
-		util.Check(dErr)
+		if dErr != nil {
+			panic(dErr)
+		}
 
 		// Handle reading from the data channel
 		go ReadLoop(raw)
@@ -60,18 +72,28 @@ func main() {
 
 	// Create an offer to send to the browser
 	offer, err := peerConnection.CreateOffer(nil)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
+
+	// Sets the LocalDescription, and starts our UDP listeners
+	err = peerConnection.SetLocalDescription(offer)
+	if err != nil {
+		panic(err)
+	}
 
 	// Output the offer in base64 so we can paste it in browser
-	fmt.Println(util.Encode(offer))
+	fmt.Println(signal.Encode(offer))
 
 	// Wait for the answer to be pasted
-	answer := webrtc.RTCSessionDescription{}
-	util.Decode(util.MustReadStdin(), answer)
+	answer := webrtc.SessionDescription{}
+	signal.Decode(signal.MustReadStdin(), &answer)
 
 	// Apply the answer as the remote description
 	err = peerConnection.SetRemoteDescription(answer)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Block forever
 	select {}
@@ -94,10 +116,12 @@ func ReadLoop(d *datachannel.DataChannel) {
 // WriteLoop shows how to write to the datachannel directly
 func WriteLoop(d *datachannel.DataChannel) {
 	for range time.NewTicker(5 * time.Second).C {
-		message := util.RandSeq(messageSize)
+		message := signal.RandSeq(messageSize)
 		fmt.Printf("Sending %s \n", message)
 
 		_, err := d.Write([]byte(message))
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 	}
 }

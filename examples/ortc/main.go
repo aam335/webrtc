@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/pions/webrtc"
-	"github.com/pions/webrtc/examples/util"
-	"github.com/pions/webrtc/pkg/datachannel"
+
+	"github.com/pions/webrtc/examples/internal/signal"
 )
 
 func main() {
@@ -17,8 +17,8 @@ func main() {
 	// Everything below is the pion-WebRTC (ORTC) API! Thanks for using it ❤️.
 
 	// Prepare ICE gathering options
-	iceOptions := webrtc.RTCIceGatherOptions{
-		ICEServers: []webrtc.RTCIceServer{
+	iceOptions := webrtc.ICEGatherOptions{
+		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
 	}
@@ -27,88 +27,112 @@ func main() {
 	api := webrtc.NewAPI()
 
 	// Create the ICE gatherer
-	gatherer, err := api.NewRTCIceGatherer(iceOptions)
-	util.Check(err)
+	gatherer, err := api.NewICEGatherer(iceOptions)
+	if err != nil {
+		panic(err)
+	}
 
 	// Construct the ICE transport
-	ice := api.NewRTCIceTransport(gatherer)
+	ice := api.NewICETransport(gatherer)
 
 	// Construct the DTLS transport
-	dtls, err := api.NewRTCDtlsTransport(ice, nil)
-	util.Check(err)
+	dtls, err := api.NewDTLSTransport(ice, nil)
+	if err != nil {
+		panic(err)
+	}
 
 	// Construct the SCTP transport
-	sctp := api.NewRTCSctpTransport(dtls)
+	sctp := api.NewSCTPTransport(dtls)
 
 	// Handle incoming data channels
-	sctp.OnDataChannel(func(channel *webrtc.RTCDataChannel) {
+	sctp.OnDataChannel(func(channel *webrtc.DataChannel) {
 		fmt.Printf("New DataChannel %s %d\n", channel.Label, channel.ID)
 
 		// Register the handlers
 		channel.OnOpen(handleOnOpen(channel))
-		channel.OnMessage(handleMessage(channel))
+		channel.OnMessage(func(msg webrtc.DataChannelMessage) {
+			fmt.Printf("Message from DataChannel '%s': '%s'\n", channel.Label, string(msg.Data))
+		})
 	})
 
 	// Gather candidates
 	err = gatherer.Gather()
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	iceCandidates, err := gatherer.GetLocalCandidates()
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	iceParams, err := gatherer.GetLocalParameters()
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	dtlsParams := dtls.GetLocalParameters()
 
 	sctpCapabilities := sctp.GetCapabilities()
 
-	signal := Signal{
+	s := Signal{
 		ICECandidates:    iceCandidates,
 		ICEParameters:    iceParams,
-		DtlsParameters:   dtlsParams,
+		DTLSParameters:   dtlsParams,
 		SCTPCapabilities: sctpCapabilities,
 	}
 
 	// Exchange the information
-	fmt.Println(util.Encode(signal))
+	fmt.Println(signal.Encode(s))
 	remoteSignal := Signal{}
-	util.Decode(util.MustReadStdin(), &remoteSignal)
+	signal.Decode(signal.MustReadStdin(), &remoteSignal)
 
-	iceRole := webrtc.RTCIceRoleControlled
+	iceRole := webrtc.ICERoleControlled
 	if *isOffer {
-		iceRole = webrtc.RTCIceRoleControlling
+		iceRole = webrtc.ICERoleControlling
 	}
 
 	err = ice.SetRemoteCandidates(remoteSignal.ICECandidates)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Start the ICE transport
 	err = ice.Start(nil, remoteSignal.ICEParameters, &iceRole)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Start the DTLS transport
-	err = dtls.Start(remoteSignal.DtlsParameters)
-	util.Check(err)
+	err = dtls.Start(remoteSignal.DTLSParameters)
+	if err != nil {
+		panic(err)
+	}
 
 	// Start the SCTP transport
 	err = sctp.Start(remoteSignal.SCTPCapabilities)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Construct the data channel as the offerer
 	if *isOffer {
-		dcParams := &webrtc.RTCDataChannelParameters{
+		dcParams := &webrtc.DataChannelParameters{
 			Label: "Foo",
 			ID:    1,
 		}
-		var channel *webrtc.RTCDataChannel
-		channel, err = api.NewRTCDataChannel(sctp, dcParams)
-		util.Check(err)
+		var channel *webrtc.DataChannel
+		channel, err = api.NewDataChannel(sctp, dcParams)
+		if err != nil {
+			panic(err)
+		}
 
 		// Register the handlers
 		// channel.OnOpen(handleOnOpen(channel)) // TODO: OnOpen on handle ChannelAck
 		go handleOnOpen(channel)() // Temporary alternative
-		channel.OnMessage(handleMessage(channel))
+		channel.OnMessage(func(msg webrtc.DataChannelMessage) {
+			fmt.Printf("Message from DataChannel '%s': '%s'\n", channel.Label, string(msg.Data))
+		})
 	}
 
 	select {}
@@ -118,35 +142,24 @@ func main() {
 // This is not part of the ORTC spec. You are free
 // to exchange this information any way you want.
 type Signal struct {
-	ICECandidates    []webrtc.RTCIceCandidate   `json:"iceCandidates"`
-	ICEParameters    webrtc.RTCIceParameters    `json:"iceParameters"`
-	DtlsParameters   webrtc.RTCDtlsParameters   `json:"dtlsParameters"`
-	SCTPCapabilities webrtc.RTCSctpCapabilities `json:"sctpCapabilities"`
+	ICECandidates    []webrtc.ICECandidate   `json:"iceCandidates"`
+	ICEParameters    webrtc.ICEParameters    `json:"iceParameters"`
+	DTLSParameters   webrtc.DTLSParameters   `json:"dtlsParameters"`
+	SCTPCapabilities webrtc.SCTPCapabilities `json:"sctpCapabilities"`
 }
 
-func handleOnOpen(channel *webrtc.RTCDataChannel) func() {
+func handleOnOpen(channel *webrtc.DataChannel) func() {
 	return func() {
 		fmt.Printf("Data channel '%s'-'%d' open. Random messages will now be sent to any connected DataChannels every 5 seconds\n", channel.Label, channel.ID)
 
 		for range time.NewTicker(5 * time.Second).C {
-			message := util.RandSeq(15)
-			fmt.Printf("Sending %s \n", message)
+			message := signal.RandSeq(15)
+			fmt.Printf("Sending '%s' \n", message)
 
-			err := channel.Send(datachannel.PayloadString{Data: []byte(message)})
-			util.Check(err)
-		}
-	}
-}
-
-func handleMessage(channel *webrtc.RTCDataChannel) func(datachannel.Payload) {
-	return func(payload datachannel.Payload) {
-		switch p := payload.(type) {
-		case *datachannel.PayloadString:
-			fmt.Printf("Message '%s' from DataChannel '%s' payload '%s'\n", p.PayloadType().String(), channel.Label, string(p.Data))
-		case *datachannel.PayloadBinary:
-			fmt.Printf("Message '%s' from DataChannel '%s' payload '% 02x'\n", p.PayloadType().String(), channel.Label, p.Data)
-		default:
-			fmt.Printf("Message '%s' from DataChannel '%s' no payload \n", p.PayloadType().String(), channel.Label)
+			err := channel.SendText(message)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 }

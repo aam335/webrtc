@@ -3,7 +3,7 @@ package webrtc
 import (
 	"time"
 
-	"github.com/pions/webrtc/pkg/ice"
+	"github.com/pions/webrtc/internal/ice"
 )
 
 // SettingEngine allows influencing behavior in ways that are not
@@ -21,11 +21,14 @@ type SettingEngine struct {
 		ICEConnection *time.Duration
 		ICEKeepalive  *time.Duration
 	}
+	candidates struct {
+		ICENetworkTypes []NetworkType
+	}
 }
 
 // DetachDataChannels enables detaching data channels. When enabled
 // data channels have to be detached in the OnOpen callback using the
-// RTCDataChannel.Detach method.
+// DataChannel.Detach method.
 func (e *SettingEngine) DetachDataChannels() {
 	e.detach.DataChannels = true
 }
@@ -48,4 +51,10 @@ func (e *SettingEngine) SetEphemeralUDPPortRange(portMin, portMax uint16) error 
 	e.ephemeralUDP.PortMin = portMin
 	e.ephemeralUDP.PortMax = portMax
 	return nil
+}
+
+// SetNetworkTypes configures what types of candidate networks are supported
+// during local and server reflexive gathering.
+func (e *SettingEngine) SetNetworkTypes(candidateTypes []NetworkType) {
+	e.candidates.ICENetworkTypes = candidateTypes
 }

@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
+	"time"
 
 	janus "github.com/notedit/janus-go"
 	"github.com/pions/webrtc"
-	"github.com/pions/webrtc/examples/util"
-	"github.com/pions/webrtc/examples/util/gstreamer-src"
-	"github.com/pions/webrtc/pkg/ice"
+
+	gst "github.com/pions/webrtc/examples/internal/gstreamer-src"
 )
 
 func watchHandle(handle *janus.Handle) {
@@ -35,13 +36,9 @@ func watchHandle(handle *janus.Handle) {
 func main() {
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
-	// Setup the codecs you want to use.
-	// We'll use the default ones but you can also define your own
-	webrtc.RegisterDefaultCodecs()
-
 	// Prepare the configuration
-	config := webrtc.RTCConfiguration{
-		IceServers: []webrtc.RTCIceServer{
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
@@ -49,36 +46,69 @@ func main() {
 	}
 
 	// Create a new RTCPeerConnection
-	peerConnection, err := webrtc.New(config)
-	util.Check(err)
+	peerConnection, err := webrtc.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
 
-	peerConnection.OnICEConnectionStateChange(func(connectionState ice.ConnectionState) {
+	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("Connection State has changed %s \n", connectionState.String())
 	})
 
 	// Create a audio track
-	opusTrack, err := peerConnection.NewRTCSampleTrack(webrtc.DefaultPayloadTypeOpus, "audio", "pion1")
-	util.Check(err)
+	opusTrack, err := peerConnection.NewTrack(webrtc.DefaultPayloadTypeOpus, rand.Uint32(), "audio", "pion1")
+	if err != nil {
+		panic(err)
+	}
 	_, err = peerConnection.AddTrack(opusTrack)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Create a video track
-	vp8Track, err := peerConnection.NewRTCSampleTrack(webrtc.DefaultPayloadTypeVP8, "video", "pion2")
-	util.Check(err)
+	vp8Track, err := peerConnection.NewTrack(webrtc.DefaultPayloadTypeVP8, rand.Uint32(), "video", "pion2")
+	if err != nil {
+		panic(err)
+	}
 	_, err = peerConnection.AddTrack(vp8Track)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	offer, err := peerConnection.CreateOffer(nil)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
+
+	err = peerConnection.SetLocalDescription(offer)
+	if err != nil {
+		panic(err)
+	}
 
 	gateway, err := janus.Connect("ws://localhost:8188/janus")
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	session, err := gateway.Create()
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	handle, err := session.Attach("janus.plugin.videoroom")
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		for {
+			if _, keepAliveErr := session.KeepAlive(); err != nil {
+				panic(keepAliveErr)
+			}
+
+			time.Sleep(5 * time.Second)
+		}
+	}()
 
 	go watchHandle(handle)
 
@@ -88,7 +118,9 @@ func main() {
 		"room":    1234,
 		"id":      1,
 	}, nil)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	msg, err := handle.Message(map[string]interface{}{
 		"request": "publish",
@@ -97,21 +129,25 @@ func main() {
 		"data":    false,
 	}, map[string]interface{}{
 		"type":    "offer",
-		"sdp":     offer.Sdp,
+		"sdp":     offer.SDP,
 		"trickle": false,
 	})
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	if msg.Jsep != nil {
-		err = peerConnection.SetRemoteDescription(webrtc.RTCSessionDescription{
-			Type: webrtc.RTCSdpTypeAnswer,
-			Sdp:  msg.Jsep["sdp"].(string),
+		err = peerConnection.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeAnswer,
+			SDP:  msg.Jsep["sdp"].(string),
 		})
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 
 		// Start pushing buffers on these tracks
-		gst.CreatePipeline(webrtc.Opus, opusTrack.Samples, "audiotestsrc").Start()
-		gst.CreatePipeline(webrtc.VP8, vp8Track.Samples, "videotestsrc").Start()
+		gst.CreatePipeline(webrtc.Opus, opusTrack, "audiotestsrc").Start()
+		gst.CreatePipeline(webrtc.VP8, vp8Track, "videotestsrc").Start()
 	}
 
 	select {}

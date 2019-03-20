@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"github.com/pions/webrtc"
-	"github.com/pions/webrtc/examples/util"
-	"github.com/pions/webrtc/pkg/datachannel"
-	"github.com/pions/webrtc/pkg/ice"
+
+	"github.com/pions/webrtc/examples/internal/signal"
 )
 
 func main() {
@@ -20,8 +19,8 @@ func main() {
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
 	// Prepare the configuration
-	config := webrtc.RTCConfiguration{
-		IceServers: []webrtc.RTCIceServer{
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
@@ -29,17 +28,19 @@ func main() {
 	}
 
 	// Create a new RTCPeerConnection
-	peerConnection, err := webrtc.New(config)
-	util.Check(err)
+	peerConnection, err := webrtc.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
 
 	// Set the handler for ICE connection state
 	// This will notify you when the peer has connected/disconnected
-	peerConnection.OnICEConnectionStateChange(func(connectionState ice.ConnectionState) {
+	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("ICE Connection State has changed: %s\n", connectionState.String())
 	})
 
 	// Register data channel creation handling
-	peerConnection.OnDataChannel(func(d *webrtc.RTCDataChannel) {
+	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
 		fmt.Printf("New DataChannel %s %d\n", d.Label, d.ID)
 
 		// Register channel opening handling
@@ -47,24 +48,20 @@ func main() {
 			fmt.Printf("Data channel '%s'-'%d' open. Random messages will now be sent to any connected DataChannels every 5 seconds\n", d.Label, d.ID)
 
 			for range time.NewTicker(5 * time.Second).C {
-				message := util.RandSeq(15)
-				fmt.Printf("Sending %s \n", message)
+				message := signal.RandSeq(15)
+				fmt.Printf("Sending '%s'\n", message)
 
-				err := d.Send(datachannel.PayloadString{Data: []byte(message)})
-				util.Check(err)
+				// Send the message as text
+				err := d.SendText(message)
+				if err != nil {
+					panic(err)
+				}
 			}
 		})
 
-		// Register message handling
-		d.OnMessage(func(payload datachannel.Payload) {
-			switch p := payload.(type) {
-			case *datachannel.PayloadString:
-				fmt.Printf("Message '%s' from DataChannel '%s' payload '%s'\n", p.PayloadType().String(), d.Label, string(p.Data))
-			case *datachannel.PayloadBinary:
-				fmt.Printf("Message '%s' from DataChannel '%s' payload '% 02x'\n", p.PayloadType().String(), d.Label, p.Data)
-			default:
-				fmt.Printf("Message '%s' from DataChannel '%s' no payload \n", p.PayloadType().String(), d.Label)
-			}
+		// Register text message handling
+		d.OnMessage(func(msg webrtc.DataChannelMessage) {
+			fmt.Printf("Message from DataChannel '%s': '%s'\n", d.Label, string(msg.Data))
 		})
 	})
 
@@ -75,11 +72,21 @@ func main() {
 	offer := <-offerChan
 
 	err = peerConnection.SetRemoteDescription(offer)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create answer
+	answer, err := peerConnection.CreateAnswer(nil)
+	if err != nil {
+		panic(err)
+	}
 
 	// Sets the LocalDescription, and starts our UDP listeners
-	answer, err := peerConnection.CreateAnswer(nil)
-	util.Check(err)
+	err = peerConnection.SetLocalDescription(answer)
+	if err != nil {
+		panic(err)
+	}
 
 	// Send the answer
 	answerChan <- answer
@@ -89,20 +96,24 @@ func main() {
 }
 
 // mustSignalViaHTTP exchange the SDP offer and answer using an HTTP server.
-func mustSignalViaHTTP(address string) (offerOut chan webrtc.RTCSessionDescription, answerIn chan webrtc.RTCSessionDescription) {
-	offerOut = make(chan webrtc.RTCSessionDescription)
-	answerIn = make(chan webrtc.RTCSessionDescription)
+func mustSignalViaHTTP(address string) (offerOut chan webrtc.SessionDescription, answerIn chan webrtc.SessionDescription) {
+	offerOut = make(chan webrtc.SessionDescription)
+	answerIn = make(chan webrtc.SessionDescription)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		var offer webrtc.RTCSessionDescription
+		var offer webrtc.SessionDescription
 		err := json.NewDecoder(r.Body).Decode(&offer)
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 
 		offerOut <- offer
 		answer := <-answerIn
 
 		err = json.NewEncoder(w).Encode(answer)
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 
 	})
 

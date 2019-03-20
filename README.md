@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://pion.ly"><img src="https://img.shields.io/badge/pion-webrtc-gray.svg?longCache=true&colorB=brightgreen" alt="Pion webrtc"></a>
   <a href="https://sourcegraph.com/github.com/pions/webrtc?badge"><img src="https://sourcegraph.com/github.com/pions/webrtc/-/badge.svg" alt="Sourcegraph Widget"></a>
-  <a href="http://gophers.slack.com/messages/pion"><img src="https://img.shields.io/badge/join-us%20on%20slack-gray.svg?longCache=true&logo=slack&colorB=brightgreen" alt="Slack Widget"></a>
+  <a href="https://pion.ly/slack"><img src="https://img.shields.io/badge/join-us%20on%20slack-gray.svg?longCache=true&logo=slack&colorB=brightgreen" alt="Slack Widget"></a>
   <a href="https://waffle.io/pions/webrtc"><img src="https://img.shields.io/badge/pm-waffle-gray.svg?longCache=true&colorB=brightgreen" alt="Waffle board"></a>
   <br>
   <a href="https://travis-ci.org/pions/webrtc"><img src="https://travis-ci.org/pions/webrtc.svg?branch=master" alt="Build Status"></a>
@@ -22,6 +22,14 @@
 
 See [DESIGN.md](DESIGN.md) for an overview of features and future goals.
 
+### Breaking Changes
+
+Pion WebRTC v2.0.0 is coming soon! HEAD will be unstable for the next few weeks as we prepare for the new release. See the [release notes](https://github.com/pions/webrtc/wiki/v2.0.0-Release-Notes) to learn about the new features breaking changes.
+
+Have any questions? Join [the Slack channel](https://pion.ly/slack) to follow development and speak with the maintainers.
+
+Use the tag [v1.2.0](https://github.com/pions/webrtc/tree/v1.2.0) if you'd like to continue using the v1.0 API in the meantime. After v2.0 is released v1.0 will be deprecated and unmaintained.
+
 ### Usage
 Check out the **[example applications](examples/README.md)** to help you along your Pion WebRTC journey.
 
@@ -33,6 +41,16 @@ Now go forth and build some awesome apps! Here are some **ideas** to get your cr
 * Securely send data between two servers, without using pub/sub.
 * Record your webcam and do special effects server side.
 * Build a conferencing application that processes audio/video and make decisions off of it.
+
+### WebAssembly
+Pion WebRTC can be used when compiled to WebAssembly, also known as Wasm. In
+this case the library will act as a wrapper around the JavaScript WebRTC API.
+This allows you to use WebRTC from Go in both server and browser side code with
+little to no changes. Check out the
+**[example applications](examples/README.md#webassembly)** for instructions on
+how to compile and run the WebAssembly examples. You can also visit the
+[Wiki page on WebAssembly Development](https://github.com/pions/webrtc/wiki/WebAssembly-Development-and-Testing)
+for more information.
 
 ### Roadmap
 The library is in active development, please refer to the [roadmap](https://github.com/pions/webrtc/issues/9) to track our major milestones.
@@ -47,7 +65,6 @@ If you need commercial support or don't want to use public methods you can conta
 ### Related projects
 * [pions/turn](https://github.com/pions/turn): A simple extendable Golang TURN server
 * [WIP] [pions/media-server](https://github.com/pions/media-server): A Pion WebRTC powered media server, providing the building blocks for anything RTC.
-* [WIP] [pions/dcnet](https://github.com/pions/dcnet): A package providing Golang [net](https://godoc.org/net) interfaces around Pion WebRTC data channels.
 
 ### Contributing
 Check out the **[contributing wiki](https://github.com/pions/webrtc/wiki/Contributing)** to join the group of amazing people making this project possible:
@@ -74,6 +91,15 @@ Check out the **[contributing wiki](https://github.com/pions/webrtc/wiki/Contrib
 * [Tobias Fridén](https://github.com/tobiasfriden) *SRTP authentication verification*
 * [Yutaka Takeda](https://github.com/enobufs) *Fix ICE connection timeout*
 * [Hugo Arregui](https://github.com/hugoArregui) *Fix connection timeout*
+* [Rob Deutsch](https://github.com/rob-deutsch) *RTPReceiver graceful shutdown*
+* [Jin Lei](https://github.com/jinleileiking) - *SFU example use http*
+* [Will Watson](https://github.com/wwatson) - *Enable gocritic*
+* [Luke Curley](https://github.com/kixelated)
+* [Antoine Baché](https://github.com/Antonito) - *OGG Opus export*
+* [frank](https://github.com/feixiao) - *Building examples on OSX*
+* [mxmCherry](https://github.com/mxmCherry)
+* [Alex Browne](https://github.com/albrow) - *JavaScript/Wasm bindings*
+* [adwpc](https://github.com/adwpc) - *SFU example with websocket*
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

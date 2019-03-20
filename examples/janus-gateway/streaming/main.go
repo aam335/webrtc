@@ -6,10 +6,29 @@ import (
 
 	janus "github.com/notedit/janus-go"
 	"github.com/pions/webrtc"
-	"github.com/pions/webrtc/examples/util"
-	"github.com/pions/webrtc/pkg/ice"
+	"github.com/pions/webrtc/pkg/media"
 	"github.com/pions/webrtc/pkg/media/ivfwriter"
+	"github.com/pions/webrtc/pkg/media/opuswriter"
 )
+
+func saveToDisk(i media.Writer, track *webrtc.Track) {
+	defer func() {
+		if err := i.Close(); err != nil {
+			panic(err)
+		}
+	}()
+
+	for {
+		packet, err := track.ReadRTP()
+		if err != nil {
+			panic(err)
+		}
+
+		if err := i.AddPacket(packet); err != nil {
+			panic(err)
+		}
+	}
+}
 
 func watchHandle(handle *janus.Handle) {
 	// wait for event
@@ -29,19 +48,14 @@ func watchHandle(handle *janus.Handle) {
 		}
 
 	}
-
 }
 
 func main() {
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
-	// Setup the codecs you want to use.
-	// We'll use the default ones but you can also define your own
-	webrtc.RegisterDefaultCodecs()
-
 	// Prepare the configuration
-	config := webrtc.RTCConfiguration{
-		IceServers: []webrtc.RTCIceServer{
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
@@ -49,38 +63,51 @@ func main() {
 	}
 
 	// Create a new RTCPeerConnection
-	peerConnection, err := webrtc.New(config)
-	util.Check(err)
+	peerConnection, err := webrtc.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
 
-	peerConnection.OnICEConnectionStateChange(func(connectionState ice.ConnectionState) {
+	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("Connection State has changed %s \n", connectionState.String())
 	})
 
-	peerConnection.OnTrack(func(track *webrtc.RTCTrack) {
-		if track.Codec.Name == webrtc.Opus {
-			return
-		}
-
-		fmt.Println("Got VP8 track, saving to disk as output.ivf")
-		i, err := ivfwriter.New("output.ivf")
-		util.Check(err)
-		for {
-			err = i.AddPacket(<-track.Packets)
-			util.Check(err)
+	peerConnection.OnTrack(func(track *webrtc.Track, receiver *webrtc.RTPReceiver) {
+		codec := track.Codec()
+		if codec.Name == webrtc.Opus {
+			fmt.Println("Got Opus track, saving to disk as output.opus")
+			i, err := opuswriter.New("output.opus", codec.ClockRate, codec.Channels)
+			if err != nil {
+				panic(err)
+			}
+			saveToDisk(i, track)
+		} else if codec.Name == webrtc.VP8 {
+			fmt.Println("Got VP8 track, saving to disk as output.ivf")
+			i, err := ivfwriter.New("output.ivf")
+			if err != nil {
+				panic(err)
+			}
+			saveToDisk(i, track)
 		}
 	})
 
 	// Janus
 	gateway, err := janus.Connect("ws://localhost:8188/")
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Create session
 	session, err := gateway.Create()
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Create handle
 	handle, err := session.Attach("janus.plugin.streaming")
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	go watchHandle(handle)
 
@@ -88,38 +115,55 @@ func main() {
 	_, err = handle.Request(map[string]interface{}{
 		"request": "list",
 	})
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	// Watch the second stream
 	msg, err := handle.Message(map[string]interface{}{
 		"request": "watch",
 		"id":      1,
 	}, nil)
-	util.Check(err)
+	if err != nil {
+		panic(err)
+	}
 
 	if msg.Jsep != nil {
-		err = peerConnection.SetRemoteDescription(webrtc.RTCSessionDescription{
-			Type: webrtc.RTCSdpTypeOffer,
-			Sdp:  msg.Jsep["sdp"].(string),
+		err = peerConnection.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeOffer,
+			SDP:  msg.Jsep["sdp"].(string),
 		})
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 
 		answer, err := peerConnection.CreateAnswer(nil)
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
+
+		err = peerConnection.SetLocalDescription(answer)
+		if err != nil {
+			panic(err)
+		}
 
 		// now we start
 		_, err = handle.Message(map[string]interface{}{
 			"request": "start",
 		}, map[string]interface{}{
 			"type":    "answer",
-			"sdp":     answer.Sdp,
+			"sdp":     answer.SDP,
 			"trickle": false,
 		})
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 	}
 	for {
 		_, err = session.KeepAlive()
-		util.Check(err)
+		if err != nil {
+			panic(err)
+		}
 
 		time.Sleep(5 * time.Second)
 	}
