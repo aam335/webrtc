@@ -16,6 +16,9 @@ type SettingEngine struct {
 		PortMin uint16
 		PortMax uint16
 	}
+	listenerTCP struct {
+		Port uint16
+	}
 	detach struct {
 		DataChannels bool
 	}
@@ -59,4 +62,10 @@ func (e *SettingEngine) SetEphemeralUDPPortRange(portMin, portMax uint16) error 
 // during local and server reflexive gathering.
 func (e *SettingEngine) SetNetworkTypes(candidateTypes []NetworkType) {
 	e.candidates.ICENetworkTypes = candidateTypes
+}
+
+// SetListenTCPPort configures what port number was used for incoming
+// TCP connections, default 0 - random port
+func (e *SettingEngine) SetListenTCPPort(port uint16) {
+	e.listenerTCP.Port = port
 }
