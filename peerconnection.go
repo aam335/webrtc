@@ -1460,6 +1460,9 @@ func (pc *PeerConnection) addRTPMediaSection(d *sdp.SessionDescription, codecTyp
 
 	for _, c := range candidates {
 		sdpCandidate := c.toSDP()
+		if dtlsRole != sdp.ConnectionRoleActive && sdpCandidate.Protocol == "tcp" {
+			sdpCandidate.ExtensionAttributes = append(sdpCandidate.ExtensionAttributes, sdp.ICECandidateAttribute{Key: "tcptype", Value: "passive"})
+		}
 		sdpCandidate.ExtensionAttributes = append(sdpCandidate.ExtensionAttributes, sdp.ICECandidateAttribute{Key: "generation", Value: "0"})
 		sdpCandidate.Component = 1
 		media.WithICECandidate(sdpCandidate)
@@ -1495,6 +1498,9 @@ func (pc *PeerConnection) addDataMediaSection(d *sdp.SessionDescription, midValu
 
 	for _, c := range candidates {
 		sdpCandidate := c.toSDP()
+		if dtlsRole != sdp.ConnectionRoleActive && sdpCandidate.Protocol == "tcp" {
+			sdpCandidate.ExtensionAttributes = append(sdpCandidate.ExtensionAttributes, sdp.ICECandidateAttribute{Key: "tcptype", Value: "passive"})
+		}
 		sdpCandidate.ExtensionAttributes = append(sdpCandidate.ExtensionAttributes, sdp.ICECandidateAttribute{Key: "generation", Value: "0"})
 		sdpCandidate.Component = 1
 		media.WithICECandidate(sdpCandidate)
