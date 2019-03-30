@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +14,13 @@ import (
 	"github.com/pions/transport/test"
 	"github.com/pions/webrtc/pkg/media"
 )
+
+/*
+Integration test for bi-directional peers
+
+This asserts we can send RTP and RTCP both ways, and blocks until
+each side gets something (and asserts payload contents)
+*/
 
 func TestPeerConnection_Media_Sample(t *testing.T) {
 	api := NewAPI()
@@ -177,12 +183,9 @@ func TestPeerConnection_Media_Shutdown(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	pcOffer, err := NewPeerConnection(Configuration{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	pcAnswer, err := NewPeerConnection(Configuration{})
+	api := NewAPI()
+	api.mediaEngine.RegisterDefaultCodecs()
+	pcOffer, pcAnswer, err := api.newPair()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,70 +264,84 @@ func TestPeerConnection_Media_Shutdown(t *testing.T) {
 	onTrackFiredLock.Unlock()
 }
 
-func TestPeerConnection_Media_Sender_Transports_OnSelectedCandidatePairChange(t *testing.T) {
-	iceComplete := make(chan bool)
+/*
+Integration test for behavior around media and disconnected peers
 
-	api := NewAPI()
+* Sending RTP and RTCP to a disconnected Peer shouldn't return an error
+
+*/
+func TestPeerConnection_Media_Disconnected(t *testing.T) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
+	report := test.CheckRoutines(t)
+	defer report()
+
+	s := SettingEngine{}
+	s.SetConnectionTimeout(time.Duration(1)*time.Second, time.Duration(250)*time.Millisecond)
+
+	api := NewAPI(WithSettingEngine(s))
 	api.mediaEngine.RegisterDefaultCodecs()
+
 	pcOffer, pcAnswer, err := api.newPair()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	opusTrack, err := pcOffer.NewTrack(DefaultPayloadTypeOpus, rand.Uint32(), "audio", "pion1")
-	if err != nil {
-		t.Fatal(err)
-	}
 	vp8Track, err := pcOffer.NewTrack(DefaultPayloadTypeVP8, rand.Uint32(), "video", "pion2")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err = pcOffer.AddTrack(opusTrack); err != nil {
-		t.Fatal(err)
-	} else if _, err = pcAnswer.AddTrack(vp8Track); err != nil {
+	vp8Sender, err := pcOffer.AddTrack(vp8Track)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	pcAnswer.OnICEConnectionStateChange(func(iceState ICEConnectionState) {
-		if iceState == ICEConnectionStateConnected {
-			time.Sleep(3 * time.Second) // TODO PeerConnection.Close() doesn't block for all subsystems
-			close(iceComplete)
+	haveDisconnected := make(chan error)
+	pcOffer.OnICEConnectionStateChange(func(iceState ICEConnectionState) {
+		if iceState == ICEConnectionStateDisconnected {
+			close(haveDisconnected)
+		} else if iceState == ICEConnectionStateConnected {
+			// Assert that DTLS is done by pull remote certificate, don't tear down the PC early
+			for {
+				if len(vp8Sender.Transport().GetRemoteCertificate()) != 0 {
+					pcAnswer.sctpTransport.lock.RLock()
+					haveAssocation := pcAnswer.sctpTransport.association != nil
+					pcAnswer.sctpTransport.lock.RUnlock()
+
+					if haveAssocation {
+						break
+					}
+				}
+
+				time.Sleep(time.Second)
+			}
+
+			if pcCloseErr := pcAnswer.Close(); pcCloseErr != nil {
+				haveDisconnected <- pcCloseErr
+			}
 		}
 	})
-
-	senderCalledCandidateChange := int32(0)
-	for _, sender := range pcOffer.GetSenders() {
-		dtlsTransport := sender.Transport()
-		if dtlsTransport == nil {
-			continue
-		}
-		if iceTransport := dtlsTransport.ICETransport(); iceTransport != nil {
-			iceTransport.OnSelectedCandidatePairChange(func(pair *ICECandidatePair) {
-				atomic.StoreInt32(&senderCalledCandidateChange, 1)
-			})
-		}
-	}
 
 	err = signalPair(pcOffer, pcAnswer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-iceComplete
 
-	if atomic.LoadInt32(&senderCalledCandidateChange) == 0 {
-		t.Fatalf("Sender ICETransport OnSelectedCandidateChange was never called")
+	err, ok := <-haveDisconnected
+	if ok {
+		t.Fatal(err)
+	}
+	for i := 0; i <= 5; i++ {
+		if rtpErr := vp8Track.WriteSample(media.Sample{Data: []byte{0x00}, Samples: 1}); rtpErr != nil {
+			t.Fatal(rtpErr)
+		} else if rtcpErr := pcOffer.SendRTCP(&rtcp.PictureLossIndication{MediaSSRC: 0}); rtcpErr != nil {
+			t.Fatal(rtcpErr)
+		}
 	}
 
 	err = pcOffer.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = pcAnswer.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
